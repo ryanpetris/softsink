@@ -1,5 +1,6 @@
 mod audio;
 mod capture;
+mod clipboard;
 mod decode;
 mod inhibit;
 mod render;
@@ -10,13 +11,14 @@ mod ui;
 use std::error::Error;
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{Key, KeyCode, ModifiersState, PhysicalKey};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::platform::startup_notify::{
     EventLoopExtStartupNotify, WindowAttributesExtStartupNotify,
 };
@@ -28,11 +30,18 @@ use render::Renderer;
 use settings::Settings;
 use ui::Ui;
 
+/// The deadline an otherwise idle loop waits for. Winit runs no callback after
+/// a wake that carries only clipboard events unless a deadline is set, and a
+/// paste request from another program is such a wake.
+const IDLE: Duration = Duration::from_secs(3600);
+
 struct App {
     audio: audio::Audio,
     inbox: Arc<Mutex<Inbox>>,
     controls: Option<Ui>,
     inhibition: Sender<bool>,
+    clipboard: Option<clipboard::Clipboard>,
+    modifiers: ModifiersState,
     renderer: Option<(Renderer, Ui)>,
     redraw_at: Option<Instant>,
     error: Option<Box<dyn Error>>,
@@ -85,6 +94,13 @@ impl ApplicationHandler<Event> for App {
                 let _ = self.inhibition.send(false);
             }
             Event::ModeFailed(source, mode) => ui.forget_mode(&source, mode),
+            Event::Encoded(png) => {
+                if let Some(clipboard) = &mut self.clipboard
+                    && let Err(error) = clipboard.publish(png)
+                {
+                    eprintln!("Cannot copy the frame: {error}");
+                }
+            }
             Event::Status(status) => {
                 self.audio
                     .select(status.device.as_ref().map(|source| source.path.as_path()));
@@ -119,6 +135,7 @@ impl ApplicationHandler<Event> for App {
                 return;
             }
             WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. } => ui.activity(),
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
             // Keys go to the program only, which keeps egui's keyboard
             // navigation off.
             WindowEvent::KeyboardInput { event, .. }
@@ -132,6 +149,11 @@ impl ApplicationHandler<Event> for App {
                         ui::toggle_fullscreen(&window);
                     }
                     PhysicalKey::Code(KeyCode::Escape) => ui.escape(renderer.egui_ctx(), &window),
+                    _ if self.modifiers == ModifiersState::CONTROL
+                        && event.key_without_modifiers().as_ref() == Key::Character("c") =>
+                    {
+                        ui.copy = true;
+                    }
                     _ => {}
                 }
                 redraw = true;
@@ -161,21 +183,38 @@ impl ApplicationHandler<Event> for App {
             _ if redraw && !renderer.live() => window.request_redraw(),
             _ => {}
         }
+        // Copies the frame on screen after a press of the copy button or
+        // Ctrl+C. The next frame's upload queues after the snapshot, so it
+        // cannot change the copied image.
+        if std::mem::take(&mut ui.copy)
+            && let Some(clipboard) = &self.clipboard
+            && let Some(snapshot) = renderer.snapshot()
+        {
+            clipboard.copy(snapshot);
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some((renderer, _)) = &self.renderer else {
+        let Some((renderer, ui)) = &mut self.renderer else {
             return;
         };
-        match self.redraw_at {
-            Some(at) if at <= Instant::now() => {
-                self.redraw_at = None;
-                renderer.window.request_redraw();
-                event_loop.set_control_flow(ControlFlow::Wait);
-            }
-            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
-            None => event_loop.set_control_flow(ControlFlow::Wait),
+        if self.redraw_at.is_some_and(|at| at <= Instant::now()) {
+            self.redraw_at = None;
+            renderer.window.request_redraw();
         }
+        let Some(clipboard) = &mut self.clipboard else {
+            event_loop.set_control_flow(
+                self.redraw_at
+                    .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
+            );
+            return;
+        };
+        if clipboard.dispatch() {
+            ui.copied();
+            renderer.window.request_redraw();
+        }
+        let wake = self.redraw_at.unwrap_or_else(|| Instant::now() + IDLE);
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }
 
@@ -210,6 +249,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let inhibitor = std::thread::Builder::new()
         .name("inhibit".into())
         .spawn(move || inhibit::run(states))?;
+    let (clipboard, copier) =
+        match clipboard::Clipboard::start(event_loop.owned_display_handle(), proxy.clone()) {
+            Ok((clipboard, copier)) => (Some(clipboard), Some(copier)),
+            Err(error) => {
+                eprintln!("Clipboard unavailable: {error}");
+                (None, None)
+            }
+        };
     let capture_inbox = Arc::clone(&inbox);
     let source = settings.source.clone();
     let modes = settings.modes.clone();
@@ -221,6 +268,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         inbox,
         controls: Some(Ui::new(commands, scan, settings, save)),
         inhibition,
+        clipboard,
+        modifiers: ModifiersState::empty(),
         renderer: None,
         redraw_at: None,
         error: None,
@@ -233,6 +282,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     drop(app);
     let _ = saver.join();
     let _ = inhibitor.join();
+    if let Some(copier) = copier {
+        let _ = copier.join();
+    }
     result?;
     error.map_or(Ok(()), Err)
 }

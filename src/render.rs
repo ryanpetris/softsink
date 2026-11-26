@@ -16,7 +16,7 @@ use crate::scale::place;
 use crate::ui::Ui;
 
 /// How long after the latest frame the video counts as live. While it is
-/// live, frame arrival drives redraws and nothing else requests them.
+/// live, frame arrival drives redraws and the interface requests none.
 const LIVE: Duration = Duration::from_millis(100);
 /// Redraw interval for animations when no video arrives.
 const ANIMATION_FRAME: Duration = Duration::from_millis(8);
@@ -46,6 +46,18 @@ struct Video {
     bindings: BindGroup,
     mode: Mode,
     color: Color,
+}
+
+/// The current frame rendered at its capture size into a buffer the
+/// clipboard thread maps once the GPU finishes.
+pub struct Snapshot {
+    pub device: Device,
+    pub buffer: Buffer,
+    pub width: u32,
+    pub height: u32,
+    /// Bytes per row in `buffer`, padded to the copy alignment.
+    pub stride: u32,
+    pub bgra: bool,
 }
 
 /// How far back the statistics reach.
@@ -523,6 +535,77 @@ impl Renderer {
             .filter(|at| ui.settings.stats && at.elapsed() < STALE)
             .map(|at| at + STALE);
         next.into_iter().chain(stale).min()
+    }
+
+    /// Renders the current frame through the video shader into a texture of
+    /// the capture size and copies it into a mappable buffer, or returns
+    /// `None` while there is no frame.
+    pub fn snapshot(&self) -> Option<Snapshot> {
+        let video = self.video.as_ref()?;
+        let size = Extent3d {
+            width: video.mode.width,
+            height: video.mode.height,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&TextureDescriptor {
+            label: Some("Snapshot"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: self.config.format,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let stride = (size.width * 4).next_multiple_of(COPY_BYTES_PER_ROW_ALIGNMENT);
+        let buffer = self.device.create_buffer(&BufferDescriptor {
+            label: Some("Snapshot"),
+            size: u64::from(stride) * u64::from(size.height),
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor::default());
+        {
+            let view = texture.create_view(&TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(wgpu::Color::BLACK),
+                        store: StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &video.bindings, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(stride),
+                    rows_per_image: None,
+                },
+            },
+            size,
+        );
+        self.queue.submit([encoder.finish()]);
+        Some(Snapshot {
+            device: self.device.clone(),
+            buffer,
+            width: size.width,
+            height: size.height,
+            stride,
+            bgra: self.config.format == TextureFormat::Bgra8Unorm,
+        })
     }
 
     fn upload(&mut self, frame: &Frame) {

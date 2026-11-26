@@ -62,7 +62,7 @@ Using another distribution? Download the portable tar archive; see the [Installa
 2. Open **softsink** from your application menu or run `softsink` from a terminal.
 3. softsink opens your last-selected (or first detected) capture card and picks the highest frame-rate mode automatically.
 
-Press `F11` to toggle fullscreen and `Esc` to dismiss menus, the side panel, or fullscreen. See [Using softsink](docs/usage.md) for layouts, scaling modes, audio controls, and the stats readout.
+Press `F11` to toggle fullscreen, `Ctrl+C` to copy the current frame to the clipboard, and `Esc` to dismiss menus, the side panel, or fullscreen. See [Using softsink](docs/usage.md) for layouts, scaling modes, audio controls, and the stats readout.
 
 ## Documentation
 

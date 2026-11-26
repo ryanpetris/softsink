@@ -12,10 +12,12 @@ egui-wgpu = { version = "0.37", default-features = false }
 egui-winit = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
 egui-phosphor = "0.14"
 libc = "0.2"
+png = "0.18"
 pollster = "1"
 rtrb = "0.4"
 rubato = { version = "5.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
+smithay-client-toolkit = { version = "0.19.2", default-features = false, features = ["calloop"] }
 toml = "1.2"
 turbojpeg = "1.5"
 v4l = "0.14"

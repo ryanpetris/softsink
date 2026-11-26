@@ -20,6 +20,8 @@ use crate::scale::Scale;
 use crate::settings::{Layout, Settings};
 
 const HIDE_AFTER: Duration = Duration::from_secs(2);
+/// How long the copy button shows a check after a frame reaches the clipboard.
+const COPIED_FOR: Duration = Duration::from_secs(1);
 const SLIDE_SECONDS: f32 = 0.18;
 /// Height of the framed layout's header bar, in points.
 const HEADER_HEIGHT: f32 = 40.0;
@@ -58,6 +60,10 @@ pub struct Ui {
     window_size: Option<[u32; 2]>,
     pub settings: Settings,
     pub quit: bool,
+    /// Requests a copy of the frame on screen. Set by the copy button and
+    /// Ctrl+C.
+    pub copy: bool,
+    copied_at: Option<Instant>,
     commands: Sender<Command>,
     scan: SyncSender<()>,
     save: Sender<Settings>,
@@ -86,6 +92,8 @@ impl Ui {
             window_size: None,
             settings,
             quit: false,
+            copy: false,
+            copied_at: None,
             commands,
             scan,
             save,
@@ -169,6 +177,13 @@ impl Ui {
         self.last_activity = Instant::now();
     }
 
+    /// Shows a frame reaching the clipboard on the copy button, revealing
+    /// the immersive bar so the check is seen.
+    pub fn copied(&mut self) {
+        self.copied_at = Some(Instant::now());
+        self.activity();
+    }
+
     /// Records pointer motion and which window border, if any, is under the
     /// pointer.
     pub fn pointer_moved(&mut self, window: &Window, position: PhysicalPosition<f64>) {
@@ -242,7 +257,7 @@ impl Ui {
             }
             let pointer = ctx.input(|input| input.pointer.hover_pos());
             if self.shown > 0.0 {
-                let rect = self.bar(&ctx, window, panel);
+                let rect = self.bar(&ctx, window, panel, mode.is_some());
                 over_controls |= pointer.is_some_and(|pointer| rect.contains(pointer));
             }
             if panel > 0.0 {
@@ -250,7 +265,7 @@ impl Ui {
                 over_controls |= pointer.is_some_and(|pointer| rect.contains(pointer));
             }
         } else {
-            self.header(ui, window, audio);
+            self.header(ui, window, audio, mode.is_some());
             top = HEADER_HEIGHT;
         }
         if self.no_signal {
@@ -282,7 +297,7 @@ impl Ui {
         self.menu_open = Popup::is_any_open(&ctx);
     }
 
-    fn header(&mut self, ui: &mut egui::Ui, window: &Window, audio: &Audio) {
+    fn header(&mut self, ui: &mut egui::Ui, window: &Window, audio: &Audio, video: bool) {
         let frame = Frame::new()
             .fill(SURFACE)
             .inner_margin(Margin::symmetric(8, 0));
@@ -354,6 +369,8 @@ impl Ui {
                             self.settings.layout = Layout::Immersive;
                             self.save_settings();
                         }
+                        ui.add_space(8.0);
+                        self.copy_button(ui, video);
                     });
                 });
             });
@@ -361,7 +378,7 @@ impl Ui {
 
     /// Shows the button bar centred in the part of the window the panel
     /// leaves uncovered.
-    fn bar(&mut self, ctx: &egui::Context, window: &Window, panel: f32) -> egui::Rect {
+    fn bar(&mut self, ctx: &egui::Context, window: &Window, panel: f32, video: bool) -> egui::Rect {
         let x = -(PANEL_WIDTH + PANEL_MARGIN) * panel / 2.0;
         let y = -20.0 + (1.0 - self.shown) * 80.0;
         egui::Area::new(Id::unique("bar"))
@@ -377,6 +394,7 @@ impl Ui {
                                 let _ = self.scan.try_send(());
                             }
                         }
+                        self.copy_button(ui, video);
                         if icon_button(ui, icon::APP_WINDOW, false).clicked() {
                             if self.settings.layout != Layout::Framed {
                                 self.settings.layout = Layout::Framed;
@@ -443,6 +461,29 @@ impl Ui {
             })
             .response
             .rect
+    }
+
+    /// Shows the copy button, disabled without `video` and showing a check
+    /// for a moment after a copy.
+    fn copy_button(&mut self, ui: &mut egui::Ui, video: bool) {
+        let left = self
+            .copied_at
+            .and_then(|at| COPIED_FOR.checked_sub(at.elapsed()));
+        if let Some(left) = left {
+            ui.ctx().request_repaint_after(left);
+        }
+        let glyph = if left.is_some() {
+            icon::CHECK
+        } else {
+            icon::IMAGES
+        };
+        if ui
+            .add_enabled_ui(video, |ui| icon_button(ui, glyph, false))
+            .inner
+            .clicked()
+        {
+            self.copy = true;
+        }
     }
 
     fn sources(&mut self, ui: &mut egui::Ui) {

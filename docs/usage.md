@@ -18,8 +18,10 @@ softsink draws a borderless window with a minimum size of 640x360 logical pixels
 
 Two layouts are available:
 
-- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds toggles for the immersive layout and fullscreen, along with minimize, maximize, and close buttons. Drag the header bar to move the window.
-- **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video area to move the window.
+- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window.
+- **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, copy, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video area to move the window.
+
+The copy button puts the current video frame on the clipboard as an image at the capture resolution, without the interface, scaling, or black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while softsink runs.
 
 ### Keyboard Shortcuts
 
@@ -27,6 +29,7 @@ Two layouts are available:
 | --- | --- |
 | `F11` | Toggle borderless fullscreen |
 | `Esc` | Close an open menu, then the immersive side panel, otherwise exit fullscreen |
+| `Ctrl+C` | Copy the current frame to the clipboard |
 
 ## Scaling
 

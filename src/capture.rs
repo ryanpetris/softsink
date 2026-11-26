@@ -98,6 +98,7 @@ pub enum Event {
     Status(Status),
     Stopped,
     ModeFailed(String, Mode),
+    Encoded(Vec<u8>),
 }
 
 pub enum Command {
