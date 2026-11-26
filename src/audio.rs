@@ -63,10 +63,17 @@ pub struct Figures {
 
 type Request = Option<(PathBuf, Arc<Session>)>;
 
+enum Message {
+    /// The selected source, with the sender its streams report failures on.
+    Select(Option<(PathBuf, Arc<Session>, Sender<Message>)>),
+    /// A stream of the selected source failed.
+    Failed,
+}
+
 pub struct Audio {
     gain: Arc<AtomicU32>,
     current: Request,
-    requests: Sender<Request>,
+    requests: Sender<Message>,
 }
 
 impl Audio {
@@ -127,7 +134,10 @@ impl Audio {
             };
             (path.to_owned(), Arc::new(session))
         });
-        let _ = self.requests.send(self.current.clone());
+        let selected = self.current.clone();
+        let _ = self.requests.send(Message::Select(
+            selected.map(|(path, session)| (path, session, self.requests.clone())),
+        ));
     }
 }
 
@@ -137,30 +147,33 @@ impl Drop for Audio {
     }
 }
 
-fn run(requests: Receiver<Request>, gain: Arc<AtomicU32>) {
-    let mut current: Request = None;
-    let mut playing: Option<((Stream, Stream), Instant)> = None;
+fn run(requests: Receiver<Message>, gain: Arc<AtomicU32>) {
+    let mut current = None;
+    // The open streams, and when they opened until they first play.
+    let mut playing: Option<((Stream, Stream), Option<Instant>)> = None;
     let mut stream_id = 0;
     // Set once a failure is printed, and cleared when audio plays or the
     // source changes, so each outage prints one line.
     let reported = Arc::new(AtomicBool::new(false));
     loop {
-        let request = if playing.is_some() {
-            requests.recv_timeout(Duration::from_millis(50))
-        } else if current.is_some() {
-            requests.recv_timeout(Duration::from_secs(1))
-        } else {
-            requests.recv().map_err(|_| RecvTimeoutError::Disconnected)
+        // Streams that play need no checking: a failure arrives as a message.
+        let message = match &playing {
+            Some((_, Some(_))) => requests.recv_timeout(Duration::from_millis(50)),
+            None if current.is_some() => requests.recv_timeout(Duration::from_secs(1)),
+            _ => requests.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
-        match request {
-            Ok(request) => {
+        match message {
+            Ok(Message::Select(selected)) => {
                 playing = None;
-                current = request;
+                current = selected;
                 reported.store(false, Relaxed);
             }
-            Err(RecvTimeoutError::Timeout) => {
-                if let Some((_, opened)) = &playing
-                    && let Some((_, session)) = &current
+            // Both streams can report one outage. The second report must not
+            // cut short the wait before the next attempt.
+            Ok(Message::Failed) if playing.is_none() => continue,
+            Ok(Message::Failed) | Err(RecvTimeoutError::Timeout) => {
+                if let Some((_, opened)) = &mut playing
+                    && let Some((_, session, _)) = &current
                 {
                     if session.stopped() {
                         playing = None;
@@ -168,9 +181,10 @@ fn run(requests: Receiver<Request>, gain: Arc<AtomicU32>) {
                             session.unavailable.store(true, Relaxed);
                         }
                     } else if session.started.load(Relaxed) != 0 {
+                        *opened = None;
                         reported.store(false, Relaxed);
                         session.unavailable.store(false, Relaxed);
-                    } else if opened.elapsed() >= START_TIMEOUT {
+                    } else if opened.is_some_and(|at| at.elapsed() >= START_TIMEOUT) {
                         session.failed.store(true, Relaxed);
                         start_failed(session, &reported, "Audio playback timed out");
                         playing = None;
@@ -180,7 +194,7 @@ fn run(requests: Receiver<Request>, gain: Arc<AtomicU32>) {
             }
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        let Some((path, session)) = &current else {
+        let Some((path, session, wake)) = &current else {
             continue;
         };
         if session.cancelled.load(Relaxed) {
@@ -196,8 +210,8 @@ fn run(requests: Receiver<Request>, gain: Arc<AtomicU32>) {
         session.failed.store(false, Relaxed);
         session.underruns.store(0, Relaxed);
         stream_id += 1;
-        match open(video, session, &gain, &reported, stream_id) {
-            Ok(Some(streams)) => playing = Some((streams, Instant::now())),
+        match open(video, session, &gain, &reported, wake, stream_id) {
+            Ok(Some(streams)) => playing = Some((streams, Some(Instant::now()))),
             Ok(None) => session.unavailable.store(true, Relaxed),
             Err(error) => start_failed(session, &reported, error),
         }
@@ -220,7 +234,11 @@ fn stream_config(config: cpal::SupportedStreamConfig) -> StreamConfig {
     stream
 }
 
-fn stream_error(session: Arc<Session>, reported: Arc<AtomicBool>) -> impl FnMut(cpal::Error) {
+fn stream_error(
+    session: Arc<Session>,
+    reported: Arc<AtomicBool>,
+    wake: Sender<Message>,
+) -> impl FnMut(cpal::Error) {
     move |error| {
         if !session.stopped()
             && matches!(
@@ -235,6 +253,7 @@ fn stream_error(session: Arc<Session>, reported: Arc<AtomicBool>) -> impl FnMut(
             if !reported.swap(true, Relaxed) {
                 eprintln!("Audio stopped: {error}");
             }
+            let _ = wake.send(Message::Failed);
         }
     }
 }
@@ -244,6 +263,7 @@ fn open(
     session: &Arc<Session>,
     gain: &Arc<AtomicU32>,
     reported: &Arc<AtomicBool>,
+    wake: &Sender<Message>,
     stream_id: usize,
 ) -> Result<Option<(Stream, Stream)>, Box<dyn Error>> {
     let Some((input, host)) = paired_input(video)? else {
@@ -292,7 +312,7 @@ fn open(
                 );
             }
         },
-        stream_error(Arc::clone(session), Arc::clone(reported)),
+        stream_error(Arc::clone(session), Arc::clone(reported), wake.clone()),
         None,
     )?;
 
@@ -378,7 +398,7 @@ fn open(
                 output_session.started.store(stream_id, Release);
             }
         },
-        stream_error(Arc::clone(session), Arc::clone(reported)),
+        stream_error(Arc::clone(session), Arc::clone(reported), wake.clone()),
         None,
     )?;
 
