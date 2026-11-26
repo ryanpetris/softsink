@@ -17,6 +17,9 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::platform::startup_notify::{
+    EventLoopExtStartupNotify, WindowAttributesExtStartupNotify,
+};
 use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::window::{Window, WindowId};
 
@@ -50,6 +53,11 @@ impl ApplicationHandler<Event> for App {
             if let Some([width, height]) = ui.settings.window_size.filter(|size| !size.contains(&0))
             {
                 attributes = attributes.with_inner_size(LogicalSize::new(width, height));
+            }
+            // Handing the launcher's token back ends the desktop's startup
+            // sequence, so the window counts as the launched application.
+            if let Some(token) = event_loop.read_token_from_env() {
+                attributes = attributes.with_activation_token(token);
             }
             let window = Arc::new(event_loop.create_window(attributes)?);
             let renderer = pollster::block_on(Renderer::new(window.clone()))?;
