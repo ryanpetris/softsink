@@ -18,7 +18,7 @@ impl<'a> Inhibitor<'a> {
             PATH,
             Some(SERVICE),
             "Inhibit",
-            &("softsink", "Showing video"),
+            &("Softsink", "Showing video"),
         ))?
         .body()
         .deserialize()?;

@@ -54,7 +54,7 @@ impl ApplicationHandler<Event> for App {
         };
         let result = (|| {
             let mut attributes = Window::default_attributes()
-                .with_title("softsink")
+                .with_title("Softsink")
                 .with_name("dev.petris.softsink", "softsink")
                 .with_decorations(false)
                 // A smaller window puts the side panel over the button bar.

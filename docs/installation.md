@@ -32,7 +32,7 @@ Extract the archive, ensure the [runtime requirements](#runtime-requirements) ar
 
 ## Runtime Requirements
 
-softsink runs on Linux only and requires:
+Softsink runs on Linux only and requires:
 
 - **Graphics and Wayland**: The Vulkan loader and a Vulkan driver whose Wayland surface supports mailbox presentation, opaque and pre-multiplied composite alpha, and `Bgra8Unorm` or `Rgba8Unorm`.
 - **Client libraries**: Wayland (`libwayland-client`), `libxkbcommon`, PipeWire (`libpipewire-0.3`), and ALSA (`libasound`).
@@ -40,6 +40,6 @@ softsink runs on Linux only and requires:
 
 ## Launching
 
-Open **softsink** from your application menu or run `softsink` from a terminal. The only command-line option is `--version`, which prints the build version.
+Open **Softsink** from your application menu or run `softsink` from a terminal. The only command-line option is `--version`, which prints the build version.
 
-See [Using softsink](usage.md) for controls, capture modes, scaling, audio passthrough, and the stats overlay.
+See [Using Softsink](usage.md) for controls, capture modes, scaling, audio passthrough, and the stats overlay.

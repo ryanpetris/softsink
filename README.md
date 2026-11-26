@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="packaging/icons/app.svg" width="112" alt="softsink logo">
+  <img src="packaging/icons/app.svg" width="112" alt="Softsink logo">
 </p>
 
-<h1 align="center">softsink</h1>
+<h1 align="center">Softsink</h1>
 
 <p align="center">
   <strong>Turn your Linux laptop or tablet into a low-latency monitor.</strong>
 </p>
 
 <p align="center">
-  softsink displays video and plays audio from any UVC capture card in a clean, borderless Wayland window.
+  Softsink displays video and plays audio from any UVC capture card in a clean, borderless Wayland window.
   Plug in a capture card and start viewing immediately -- low latency, automatic audio passthrough, and controls that stay out of your way.
 </p>
 
@@ -27,7 +27,7 @@
   <a href="#documentation">Documentation</a>
 </p>
 
-## Why softsink
+## Why Softsink
 
 - **Low-latency video**: Captures MJPEG, YUYV, and NV12 directly over V4L2 and presents via Vulkan mailbox mode on Wayland with minimal buffering.
 - **Automatic audio passthrough**: Pairs the capture card's USB audio input automatically and routes it to your default PipeWire output, using a ~10 ms adaptive resampling buffer to absorb clock drift.
@@ -38,7 +38,7 @@
 
 ## Quick Start
 
-### 1. Install softsink
+### 1. Install Softsink
 
 Download the Linux x86-64 package for your distribution from the [latest release](https://github.com/ryanpetris/softsink/releases/latest).
 
@@ -59,17 +59,17 @@ Using another distribution? Download the portable tar archive; see the [Installa
 ### 2. Connect and Launch
 
 1. Plug in your UVC capture card.
-2. Open **softsink** from your application menu or run `softsink` from a terminal.
-3. softsink opens your last-selected (or first detected) capture card and picks the highest frame-rate mode automatically.
+2. Open **Softsink** from your application menu or run `softsink` from a terminal.
+3. Softsink opens your last-selected (or first detected) capture card and picks the highest frame-rate mode automatically.
 
-Press `F11` to toggle fullscreen, `Ctrl+C` to copy the current frame to the clipboard, and `Esc` to dismiss menus, the side panel, or fullscreen. See [Using softsink](docs/usage.md) for layouts, scaling modes, audio controls, and the stats readout.
+Press `F11` to toggle fullscreen, `Ctrl+C` to copy the current frame to the clipboard, and `Esc` to dismiss menus, the side panel, or fullscreen. See [Using Softsink](docs/usage.md) for layouts, scaling modes, audio controls, and the stats readout.
 
 ## Documentation
 
 User guides:
 
 - [Installation](docs/installation.md) -- distribution packages, portable archive, and runtime requirements
-- [Using softsink](docs/usage.md) -- layouts, window controls, capture modes, scaling, audio, stats readout, and configuration
+- [Using Softsink](docs/usage.md) -- layouts, window controls, capture modes, scaling, audio, stats readout, and configuration
 
 Developer reference:
 
@@ -77,4 +77,4 @@ Developer reference:
 
 ## License
 
-softsink is licensed under the [MIT License](LICENSE). Release packages include third-party license notices in `notices/` and `DEPENDENCIES.md`.
+Softsink is licensed under the [MIT License](LICENSE). Release packages include third-party license notices in `notices/` and `DEPENDENCIES.md`.

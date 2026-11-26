@@ -1,27 +1,27 @@
-# Using softsink
+# Using Softsink
 
-softsink displays live video and audio from UVC capture cards in a borderless Linux Wayland window.
+Softsink displays live video and audio from UVC capture cards in a borderless Linux Wayland window.
 
 ## Capture Sources and Modes
 
-On startup, softsink scans `/dev/video*` for UVC (`uvcvideo`) capture devices and opens the last source you selected, or the first UVC device it finds. If no source is available or none starts, the window shows **No signal** and rescans every second. Opening the **Source** menu or the immersive side panel also triggers a rescan.
+On startup, Softsink scans `/dev/video*` for UVC (`uvcvideo`) capture devices and opens the last source you selected, or the first UVC device it finds. If no source is available or none starts, the window shows **No signal** and rescans every second. Opening the **Source** menu or the immersive side panel also triggers a rescan.
 
-softsink lists discrete-resolution **MJPEG**, **YUYV**, and **NV12** modes. For stepwise frame intervals, it uses the shortest interval.
+Softsink lists discrete-resolution **MJPEG**, **YUYV**, and **NV12** modes. For stepwise frame intervals, it uses the shortest interval.
 
 - **Automatic mode selection**: Picks the highest frame rate, breaks ties by largest resolution area, and prefers uncompressed **YUYV** or **NV12** over **MJPEG**.
-- **Manual mode selection**: Choosing a mode saves it per device and reuses it as long as the device still advertises it. If a saved mode fails to start while the device remains connected, softsink drops the saved mode and falls back to automatic selection.
-- **Stream recovery**: If the active source is unplugged or its stream fails, softsink rescans UVC devices. If that source is still listed and had delivered frames, softsink retries it first; otherwise it switches to another UVC device. If no source starts, softsink clears the picture, shows **No signal**, and rescans every second. A source that starts without sending frames stays selected with a black picture.
+- **Manual mode selection**: Choosing a mode saves it per device and reuses it as long as the device still advertises it. If a saved mode fails to start while the device remains connected, Softsink drops the saved mode and falls back to automatic selection.
+- **Stream recovery**: If the active source is unplugged or its stream fails, Softsink rescans UVC devices. If that source is still listed and had delivered frames, Softsink retries it first; otherwise it switches to another UVC device. If no source starts, Softsink clears the picture, shows **No signal**, and rescans every second. A source that starts without sending frames stays selected with a black picture.
 
 ## Layouts and Window Controls
 
-softsink draws a borderless window with a minimum size of 640x360 logical pixels. Drag any window edge or corner to resize while the window is neither maximized nor fullscreen.
+Softsink draws a borderless window with a minimum size of 640x360 logical pixels. Drag any window edge or corner to resize while the window is neither maximized nor fullscreen.
 
 Two layouts are available:
 
 - **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window.
 - **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, copy, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video area to move the window.
 
-The copy button puts the current video frame on the clipboard as an image at the capture resolution, without the interface, scaling, or black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while softsink runs.
+The copy button puts the current video frame on the clipboard as an image at the capture resolution, without the interface, scaling, or black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while Softsink runs.
 
 ### Keyboard Shortcuts
 
@@ -45,11 +45,11 @@ Select a scaling mode from **Scale** in the header bar or side panel:
 
 ## Audio Passthrough
 
-Audio passthrough is enabled by default. softsink finds an audio capture device on the same USB device as the active video source and plays it to the default PipeWire output. Audio starts and stops with the video stream.
+Audio passthrough is enabled by default. Softsink finds an audio capture device on the same USB device as the active video source and plays it to the default PipeWire output. Audio starts and stops with the video stream.
 
 - **Adaptive sync**: Keeps roughly 10 ms of audio buffered and subtly adjusts the resampling rate to absorb clock drift between the capture card and the output.
 - **Controls**: Mute and volume changes take effect immediately, and moving the volume slider unmutes.
-- **Missing or unavailable audio**: If a source has no USB sound card, softsink hides the audio controls. If the source has a sound card whose audio cannot start (including a 5-second startup timeout) or stops, the mute button shows a dimmed speaker with an X and the volume slider is disabled while softsink retries about once per second.
+- **Missing or unavailable audio**: If a source has no USB sound card, Softsink hides the audio controls. If the source has a sound card whose audio cannot start (including a 5-second startup timeout) or stops, the mute button shows a dimmed speaker with an X and the volume slider is disabled while Softsink retries about once per second.
 
 ## Stats Readout
 
@@ -66,11 +66,11 @@ Before initial figures arrive, or whenever no frame has been presented for more 
 
 ## Screen Blanking
 
-While video is streaming, softsink inhibits screen blanking over the session D-Bus via `org.freedesktop.ScreenSaver`, releasing the hold when capture stops or softsink exits.
+While video is streaming, Softsink inhibits screen blanking over the session D-Bus via `org.freedesktop.ScreenSaver`, releasing the hold when capture stops or Softsink exits.
 
 ## Settings
 
-softsink stores preferences in `$XDG_CONFIG_HOME/softsink/config.toml` when `XDG_CONFIG_HOME` is an absolute path, or `~/.config/softsink/config.toml` otherwise.
+Softsink stores preferences in `$XDG_CONFIG_HOME/softsink/config.toml` when `XDG_CONFIG_HOME` is an absolute path, or `~/.config/softsink/config.toml` otherwise.
 
 | Key | Description |
 | --- | --- |

@@ -1,6 +1,6 @@
-# Building softsink
+# Building Softsink
 
-This guide covers building softsink locally, versioning release builds, and building and validating Linux packages in containers.
+This guide covers building Softsink locally, versioning release builds, and building and validating Linux packages in containers.
 
 ## Building Locally
 

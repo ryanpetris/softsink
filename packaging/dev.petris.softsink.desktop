@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=softsink
+Name=Softsink
 Comment=View video from a UVC capture card
 Exec=softsink
 Icon=dev.petris.softsink

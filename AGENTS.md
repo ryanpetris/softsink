@@ -1,4 +1,4 @@
-# Instructions for agents working on softsink
+# Instructions for agents working on Softsink
 
 ## Third-party notices
 
@@ -68,7 +68,7 @@ When changing `RUSTUP_TOOLCHAIN` in `docker/host.Dockerfile`, verify that `rust_
 
 ### Verification
 
-See [Building softsink](docs/building.md) for prerequisites, `SOFTSINK_VERSION`, `HOST_ARCHIVE`, and `DOCKER=podman`. Rebuild and validate all package targets:
+See [Building Softsink](docs/building.md) for prerequisites, `SOFTSINK_VERSION`, `HOST_ARCHIVE`, and `DOCKER=podman`. Rebuild and validate all package targets:
 
 ```sh
 just check-package-host-tar
