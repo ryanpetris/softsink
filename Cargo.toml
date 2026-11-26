@@ -1,0 +1,27 @@
+[package]
+name = "softsink"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+audioadapter-buffers = "5.1"
+cpal = { version = "0.18", features = ["pipewire"] }
+egui = "0.37"
+egui-wgpu = { version = "0.37", default-features = false }
+egui-winit = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
+egui-phosphor = "0.14"
+libc = "0.2"
+pollster = "1"
+rtrb = "0.4"
+rubato = { version = "5.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+toml = "1.2"
+turbojpeg = "1.5"
+v4l = "0.14"
+wgpu = { version = "30", default-features = false, features = ["std", "vulkan", "wgsl"] }
+winit = "0.30.13"
+zbus = "6.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.10"

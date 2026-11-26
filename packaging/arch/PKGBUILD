@@ -1,0 +1,25 @@
+pkgname=softsink
+pkgver=${SOFTSINK_VERSION:-0.0.0}
+pkgrel=1
+pkgdesc='Viewer for UVC capture cards'
+arch=(x86_64)
+url=${SOFTSINK_HOMEPAGE:-https://github.com/ryanpetris/softsink}
+license=(MIT)
+depends=('glibc>=2.43' libgcc vulkan-icd-loader vulkan-driver wayland libxkbcommon
+         libpipewire alsa-lib hicolor-icon-theme)
+optdepends=('pipewire-audio: audio passthrough' 'wireplumber: ALSA device discovery')
+options=(!strip !debug)
+source=("softsink-$pkgver-linux-amd64.tar.gz")
+sha256sums=("${SOFTSINK_ARCHIVE_SHA256:?Supply the release archive checksum}")
+
+package() {
+  local root="$srcdir/softsink-$pkgver-linux-amd64"
+  local doc="$pkgdir/usr/share/doc/softsink"
+  install -Dm755 "$root/softsink" "$pkgdir/usr/bin/softsink"
+  install -Dm644 "$root/dev.petris.softsink.desktop" "$pkgdir/usr/share/applications/dev.petris.softsink.desktop"
+  install -Dm644 "$root/dev.petris.softsink.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/dev.petris.softsink.png"
+  install -Dm644 "$root/dev.petris.softsink.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/dev.petris.softsink.svg"
+  install -Dm644 "$root/LICENSE" "$pkgdir/usr/share/licenses/softsink/LICENSE"
+  install -d "$doc"
+  cp -a "$root"/{README.md,docs,notices,DEPENDENCIES.md,dependencies.json,VERSION} "$doc/"
+}

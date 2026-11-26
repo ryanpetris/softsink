@@ -1,0 +1,165 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      epoch: ${{ steps.version.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate release tag
+        id: version
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOFTSINK_VERSION: ${{ needs.validate.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.validate.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install just
+        run: |
+          sh docker/install-just.sh "$RUNNER_TEMP/softsink-bin"
+          echo "$RUNNER_TEMP/softsink-bin" >> "$GITHUB_PATH"
+      - name: Build and check the portable archive
+        run: just check-package-host-tar
+      - name: Record archive checksum
+        working-directory: build/release
+        run: sha256sum "softsink-$SOFTSINK_VERSION-linux-amd64.tar.gz" > SHA256SUMS-linux
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-linux
+          path: build/release/
+          compression-level: 0
+          if-no-files-found: error
+
+  arch:
+    needs: [validate, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOFTSINK_VERSION: ${{ needs.validate.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.validate.outputs.epoch }}
+      SOFTSINK_HOMEPAGE: https://github.com/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install just
+        run: |
+          sh docker/install-just.sh "$RUNNER_TEMP/softsink-bin"
+          echo "$RUNNER_TEMP/softsink-bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages-linux
+          path: build/portable
+      - name: Build and check the Arch package
+        run: |
+          (cd build/portable && sha256sum -c SHA256SUMS-linux)
+          just HOST_ARCHIVE="build/portable/softsink-$SOFTSINK_VERSION-linux-amd64.tar.gz" check-package-arch
+      - name: Record package checksum
+        working-directory: build/release
+        run: sha256sum "softsink-$SOFTSINK_VERSION-1-x86_64.pkg.tar.zst" > SHA256SUMS-arch
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-arch
+          path: build/release/
+          compression-level: 0
+          if-no-files-found: error
+
+  debian:
+    needs: [validate, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution: [trixie, resolute]
+    env:
+      SOFTSINK_VERSION: ${{ needs.validate.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.validate.outputs.epoch }}
+      SOFTSINK_HOMEPAGE: https://github.com/${{ github.repository }}
+      DEB_DISTRIBUTION: ${{ matrix.distribution }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install just
+        run: |
+          sh docker/install-just.sh "$RUNNER_TEMP/softsink-bin"
+          echo "$RUNNER_TEMP/softsink-bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v8
+        if: matrix.distribution == 'resolute'
+        with:
+          name: packages-linux
+          path: build/portable
+      - name: Build and check the Debian package
+        if: matrix.distribution == 'trixie'
+        run: just check-package-deb
+      - name: Build and check the Ubuntu package
+        if: matrix.distribution == 'resolute'
+        run: |
+          (cd build/portable && sha256sum -c SHA256SUMS-linux)
+          just HOST_ARCHIVE="build/portable/softsink-$SOFTSINK_VERSION-linux-amd64.tar.gz" check-package-deb
+      - name: Record package checksum
+        working-directory: build/release
+        run: sha256sum "softsink_${SOFTSINK_VERSION}-1~${DEB_DISTRIBUTION}_amd64.deb" > "SHA256SUMS-$DEB_DISTRIBUTION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.distribution }}
+          path: build/release/
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    needs: [validate, linux, arch, debian]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      SOFTSINK_VERSION: ${{ needs.validate.outputs.version }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: release
+      - name: Verify release assets
+        working-directory: release
+        run: |
+          cat SHA256SUMS-{linux,arch,trixie,resolute} > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          test -f "softsink-$SOFTSINK_VERSION-linux-amd64.tar.gz"
+          test -f "softsink-$SOFTSINK_VERSION-1-x86_64.pkg.tar.zst"
+          for distribution in trixie resolute; do
+            test -f "softsink_${SOFTSINK_VERSION}-1~${distribution}_amd64.deb"
+          done
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes release/*.tar.gz release/*.pkg.tar.zst release/*.deb release/SHA256SUMS
+          gh release edit "$RELEASE_TAG" --draft=false

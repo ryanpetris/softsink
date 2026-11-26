@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=softsink
+Comment=View video from a UVC capture card
+Exec=softsink
+Icon=dev.petris.softsink
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=true
+StartupWMClass=dev.petris.softsink
+Keywords=UVC;capture;video;

@@ -1,0 +1,18 @@
+Source: softsink
+Section: video
+Priority: optional
+Maintainer: Ryan Petris <ryan@petris.net>
+Build-Depends: debhelper-compat (= 13), libasound2t64, libpipewire-0.3-0t64,
+ libwayland-client0, libxkbcommon0
+Rules-Requires-Root: no
+Homepage: https://github.com/ryanpetris/softsink
+
+Package: softsink
+Architecture: amd64
+Depends: ${misc:Depends}, ${shlibs:Depends}, hicolor-icon-theme, libasound2t64,
+ libpipewire-0.3-0t64, libvulkan1, mesa-vulkan-drivers | vulkan-icd,
+ libwayland-client0, libxkbcommon0
+Recommends: pipewire, wireplumber
+Description: Viewer for UVC capture cards
+ Use a Linux computer as a display for another device connected through a UVC
+ capture card.

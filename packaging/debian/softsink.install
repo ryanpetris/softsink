@@ -1,0 +1,5 @@
+softsink usr/bin
+dev.petris.softsink.desktop usr/share/applications
+dev.petris.softsink.png usr/share/icons/hicolor/512x512/apps
+dev.petris.softsink.svg usr/share/icons/hicolor/scalable/apps
+README.md docs notices DEPENDENCIES.md dependencies.json VERSION usr/share/doc/softsink

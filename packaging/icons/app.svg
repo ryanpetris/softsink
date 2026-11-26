@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs><linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3d45"/><stop offset="1" stop-color="#2a2c32"/></linearGradient></defs>
+  <rect x="40" y="56" width="432" height="416" rx="80" fill="#16171b"/>
+  <rect x="40" y="40" width="432" height="416" rx="80" fill="url(#bezel)"/>
+  <path fill="none" stroke="#6ea8ff" stroke-width="52" stroke-linecap="round"
+        d="M372 136 H224 A58 58 0 0 0 224 252 H288 A58 58 0 0 1 288 368 H196"/>
+  <rect x="132" y="332" width="80" height="72" rx="14" fill="#e2e4e9"/>
+  <rect x="92" y="348" width="48" height="40" rx="6" fill="#8d93a0"/>
+</svg>

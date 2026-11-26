@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --buildsystem=none
+
+# The package uses the executable from the release archive.
+override_dh_strip:
+override_dh_dwz:
+
+override_dh_compress:
+	dh_compress -XREADME.md -Xdocs -Xnotices -Xdependencies.json -XDEPENDENCIES.md
+
+override_dh_gencontrol:
+	dh_gencontrol -- -DHomepage="$${SOFTSINK_HOMEPAGE:-https://github.com/ryanpetris/softsink}"
