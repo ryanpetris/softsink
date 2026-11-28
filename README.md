@@ -32,7 +32,8 @@
 - **Low-latency video**: Captures MJPEG, YUYV, and NV12 directly over V4L2 and presents via Vulkan mailbox mode on Wayland with minimal buffering.
 - **Automatic audio passthrough**: Pairs the capture card's USB audio input automatically and routes it to your default PipeWire output, using a ~10 ms adaptive resampling buffer to absorb clock drift.
 - **Out-of-the-way layouts**: Switch between a compact **Framed** header bar and a full-bleed **Immersive** view (or `F11` fullscreen) whose controls and cursor auto-hide after two seconds.
-- **Flexible scaling**: Choose **Fit**, **Fill**, **Stretch**, **Integer**, or **1:1** pixel scaling to match your display or preserve sharp pixels.
+- **Flexible scaling**: Choose **Fit**, **Fill**, **Stretch**, **Integer**, or **1:1** pixel scaling. Zoom in **Fit**, **Fill**, or **Integer**, and pan whenever **Fit**, **Fill**, **Integer**, or **1:1** crops the picture.
+- **Orientation controls**: Rotate or mirror the video, and Softsink saves the orientation per capture device.
 - **Live performance overlay**: Toggle **Stats** for presented FPS, rolling latency and frame-time graphs, an expandable Transfer/Decode/Render breakdown, and audio buffer health.
 - **Plug-and-play**: Automatically picks the best capture mode, remembers per-device preferences, recovers from unplugs or stream errors, and inhibits screen blanking while video is live.
 

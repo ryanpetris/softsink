@@ -12,6 +12,8 @@ struct Video {
     kind: u32,
     width: u32,
     height: u32,
+    uv_rows: vec4f,
+    crop: vec4f,
 }
 
 @group(0) @binding(0) var luma: texture_2d<f32>;
@@ -23,7 +25,9 @@ struct Video {
 @vertex
 fn vertex(@builtin(vertex_index) index: u32) -> Vertex {
     let uv = vec2f(f32((index << 1u) & 2u), f32(index & 2u));
-    return Vertex(vec4f(uv * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0), 0.0, 1.0), uv);
+    let centered = video.crop.xy + uv * video.crop.zw - 0.5;
+    let source = vec2f(dot(video.uv_rows.xy, centered), dot(video.uv_rows.zw, centered)) + 0.5;
+    return Vertex(vec4f(uv * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0), 0.0, 1.0), source);
 }
 
 fn packed_luma(pixel: vec2i) -> f32 {

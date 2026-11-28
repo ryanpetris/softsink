@@ -18,10 +18,10 @@ Softsink draws a borderless window with a minimum size of 640x360 logical pixels
 
 Two layouts are available:
 
-- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window.
-- **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, copy, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video area to move the window.
+- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, **Orientation**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window, or double-click it to maximize or restore the window.
+- **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, copy, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Orientation**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video to pan when the scaling mode allows it. To move the window, use your compositor's modifier+drag shortcut, such as `Super+drag` on GNOME.
 
-The copy button puts the current video frame on the clipboard as an image at the capture resolution, without the interface, scaling, or black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while Softsink runs.
+The copy button puts the current video frame on the clipboard with its rotation and flips applied. The image keeps the capture resolution, with width and height swapped at 90 and 270 degrees. It excludes the interface, scaling, zoom, pan, and black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while Softsink runs.
 
 ### Keyboard Shortcuts
 
@@ -30,18 +30,29 @@ The copy button puts the current video frame on the clipboard as an image at the
 | `F11` | Toggle borderless fullscreen |
 | `Esc` | Close an open menu, then the immersive side panel, otherwise exit fullscreen |
 | `Ctrl+C` | Copy the current frame to the clipboard |
+| `Ctrl+=` or `Ctrl++` | Zoom in around the center of the video area |
+| `Ctrl+-` | Zoom out around the center of the video area |
+| `Ctrl+0` | Reset zoom and pan |
 
 ## Scaling
 
 Select a scaling mode from **Scale** in the header bar or side panel:
 
-| Mode | Behavior |
-| --- | --- |
-| **Fit** (default) | Scales uniformly to fit inside the video area, adding black bars when aspect ratios differ |
-| **Fill** | Scales uniformly to cover the video area, cropping overflow evenly on opposite sides |
-| **Stretch** | Scales width and height independently to fill the video area |
-| **Integer** | Scales by the largest whole-number multiple of at least 1x that fits, or shows 1x cropped when the video is larger than the area |
-| **1:1** | Maps each video pixel to one physical screen pixel, centered with black padding or cropping |
+| Mode | Behavior | Zoom | Pan |
+| --- | --- | --- | --- |
+| **Fit** (default) | Fits the video inside the area and adds black bars when aspect ratios differ | Smooth, from 100% to 800% of the Fit size | Along any overflowing axis |
+| **Fill** | Scales the video to cover the area and crops the overflow | Smooth, from 100% to 800% of the Fill size | Along any overflowing axis |
+| **Stretch** | Scales width and height independently to fill the area | No | No |
+| **Integer** | Uses the largest whole-number multiple that fits, or shows 1x cropped when the video is larger than the area | Whole-number steps, capped at eight times the normal Integer size when zooming in | Along any overflowing axis |
+| **1:1** | Maps each video pixel to one physical screen pixel | No | Along any overflowing axis |
+
+- **Controls**: Scroll over uncovered video with the mouse wheel or touchpad to zoom around the pointer, or press `Ctrl+=`, `Ctrl++`, or `Ctrl+-` to zoom around the center of the video area. Drag uncovered video with the primary mouse button to pan. Panning stops at the edges of the video.
+- **Resetting the view**: While zoomed, **Scale** shows the zoom level next to the selected mode, such as **Fill 250%** or **Integer 3x**, and offers **Reset zoom**. **Reset zoom** and `Ctrl+0` restore the default zoom and centered view. Changing the scaling mode, capture source, capture mode, or orientation also resets the view, while stream recovery on the same source and mode preserves it. Softsink does not save zoom or pan when you quit.
+- **Window resizing**: Zoom stays relative to the size of the video area in **Fit** and **Fill**. **Integer** keeps the chosen multiple when you resize the window, even if shrinking the window puts that multiple above the zoom-in limit. If the window grows enough for a higher multiple to fit, **Integer** uses the normal size.
+
+## Orientation
+
+Use **Orientation** in the header bar or side panel to rotate the video 0, 90, 180, or 270 degrees clockwise. **Flip horizontal** swaps the displayed left and right, and **Flip vertical** swaps the displayed top and bottom. The flips are independent and apply after rotation. Softsink scales the resulting image and remembers the orientation for each capture device.
 
 ## Audio Passthrough
 
@@ -76,6 +87,7 @@ Softsink stores preferences in `$XDG_CONFIG_HOME/softsink/config.toml` when `XDG
 | --- | --- |
 | `source` | Name of the last manually selected capture source |
 | `modes` | Per-device saved capture modes |
+| `orientations` | Per-device rotation and flips, omitted for devices at the default orientation |
 | `scale` | Scaling mode (`fit`, `fill`, `stretch`, `integer`, or `native`) |
 | `layout` | Window layout (`framed` or `immersive`) |
 | `window_size` | Logical `[width, height]`, tracked while unmaximized and non-fullscreen and saved on exit |

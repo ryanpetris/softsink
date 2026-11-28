@@ -6,6 +6,7 @@ use std::{env, fs};
 use serde::{Deserialize, Serialize};
 
 use crate::capture::Mode;
+use crate::orientation::Orientation;
 use crate::scale::Scale;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +22,8 @@ pub enum Layout {
 pub struct Settings {
     pub source: Option<String>,
     pub modes: BTreeMap<String, Mode>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub orientations: BTreeMap<String, Orientation>,
     pub scale: Scale,
     pub layout: Layout,
     pub window_size: Option<[u32; 2]>,
@@ -35,6 +38,7 @@ impl Default for Settings {
         Self {
             source: None,
             modes: BTreeMap::new(),
+            orientations: BTreeMap::new(),
             scale: Scale::default(),
             layout: Layout::default(),
             window_size: None,
@@ -81,5 +85,29 @@ pub fn save_changes(path: Option<PathBuf>, changes: Receiver<Settings>) {
             let _ = fs::remove_file(&temp);
             eprintln!("Could not save settings: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orientation::Rotation;
+
+    #[test]
+    fn orientations_round_trip_without_a_default_device_entry() {
+        let mut settings: Settings = toml::from_str("source = 'Capture A'").unwrap();
+        assert!(settings.orientations.is_empty());
+        assert!(!toml::to_string(&settings).unwrap().contains("orientations"));
+
+        settings.orientations.insert(
+            "Capture B".into(),
+            Orientation {
+                rotation: Rotation::Deg270,
+                flip_horizontal: true,
+                flip_vertical: false,
+            },
+        );
+        let saved = toml::to_string(&settings).unwrap();
+        assert_eq!(toml::from_str::<Settings>(&saved).unwrap(), settings);
     }
 }

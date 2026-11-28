@@ -5,18 +5,20 @@ use std::time::{Duration, Instant};
 
 use egui::containers::menu::{MenuConfig, SubMenuButton};
 use egui::{
-    Align, Align2, Button, Color32, CornerRadius, CursorIcon, FontData, FontDefinitions,
-    FontFamily, FontId, Frame, Id, Margin, Order, Popup, Rect, RichText, Sense, Shadow, Slider,
-    Stroke, TextStyle, pos2, vec2,
+    Align, Align2, Button, Color32, CornerRadius, CursorIcon, Event, FontData, FontDefinitions,
+    FontFamily, FontId, Frame, Id, Margin, Order, PointerButton, Popup, Rect, RichText, Sense,
+    Shadow, Slider, Stroke, TextStyle, pos2, vec2,
 };
 use egui_phosphor::regular as icon;
+use egui_wgpu::ScreenDescriptor;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::{Fullscreen, ResizeDirection, Window};
 
 use crate::audio::{Audio, Readings};
-use crate::capture::{Command, Mode, Status, monotonic_now};
+use crate::capture::{Command, Mode, Source, Status, monotonic_now};
+use crate::orientation::{Orientation, Rotation};
 use crate::render::{STALE, Sample, Stats, WINDOW};
-use crate::scale::Scale;
+use crate::scale::{Geometry, Scale, View};
 use crate::settings::{Layout, Settings};
 
 const HIDE_AFTER: Duration = Duration::from_secs(2);
@@ -56,9 +58,13 @@ const SHADOW: Shadow = Shadow {
 
 pub struct Ui {
     status: Status,
+    last_device: Option<Source>,
+    last_mode: Option<Mode>,
     no_signal: bool,
     window_size: Option<[u32; 2]>,
     pub settings: Settings,
+    pub view: View,
+    video_input: VideoInput,
     pub quit: bool,
     /// Requests a copy of the frame on screen. Set by the copy button and
     /// Ctrl+C.
@@ -88,9 +94,13 @@ impl Ui {
     ) -> Self {
         Self {
             status: Status::default(),
+            last_device: None,
+            last_mode: None,
             no_signal: false,
             window_size: None,
             settings,
+            view: View::default(),
+            video_input: VideoInput::default(),
             quit: false,
             copy: false,
             copied_at: None,
@@ -112,6 +122,17 @@ impl Ui {
     }
 
     pub fn set_status(&mut self, status: Status) {
+        let device_changed = status.device.is_some() && status.device != self.last_device;
+        let mode_changed = status.mode.is_some() && status.mode != self.last_mode;
+        if device_changed {
+            self.last_device.clone_from(&status.device);
+        }
+        if mode_changed {
+            self.last_mode = status.mode;
+        }
+        if device_changed || mode_changed {
+            self.view = View::default();
+        }
         self.no_signal = status.device.is_none();
         self.status = status;
     }
@@ -121,6 +142,15 @@ impl Ui {
             self.settings.modes.remove(source);
             self.save_settings();
         }
+    }
+
+    pub fn orientation(&self) -> Orientation {
+        self.status
+            .device
+            .as_ref()
+            .and_then(|source| self.settings.orientations.get(&source.name))
+            .copied()
+            .unwrap_or_default()
     }
 
     pub fn save_window_size(&mut self) {
@@ -154,8 +184,7 @@ impl Ui {
         self.last_activity.elapsed() < HIDE_AFTER || self.over_controls || self.menu_open
     }
 
-    /// Whether the next frame draws any interface. When it does not, the
-    /// renderer skips the egui pass.
+    /// Whether the next frame draws any interface.
     pub fn visible(&self, window: &Window) -> bool {
         !self.immersive(window)
             || self.no_signal
@@ -171,6 +200,19 @@ impl Ui {
         } else {
             HEADER_HEIGHT
         }
+    }
+
+    pub fn video_geometry(
+        &self,
+        top: f32,
+        screen: &ScreenDescriptor,
+        mode: Mode,
+    ) -> Option<Geometry> {
+        Geometry::new(
+            self.settings.scale,
+            video_area(top, screen),
+            self.orientation().size([mode.width, mode.height]),
+        )
     }
 
     pub fn activity(&mut self) {
@@ -231,12 +273,22 @@ impl Ui {
         mode: Option<Mode>,
         stats: &Stats,
         audio: &Audio,
+        screen: &ScreenDescriptor,
     ) {
         let ctx = ui.ctx().clone();
         let rect = ui.max_rect();
         let mut over_controls = false;
-        let mut top = 0.0;
-        if self.immersive(window) {
+        let top = self.video_top(window);
+        let geometry = mode.and_then(|mode| self.video_geometry(top, screen, mode));
+        let [_, area_height] = video_area(top, screen);
+        let top_px = screen.size_in_pixels[1] - area_height;
+        let video_rect = Rect::from_min_max(
+            rect.min + vec2(0.0, top_px as f32 / screen.pixels_per_point),
+            rect.max,
+        );
+        self.video_input
+            .apply(ui, video_rect, geometry, &mut self.view);
+        if top == 0.0 {
             self.source_menu_open = false;
             let awake = self.awake();
             if !awake {
@@ -249,24 +301,17 @@ impl Ui {
             if self.shown == 0.0 {
                 ctx.set_cursor_icon(CursorIcon::None);
             }
-            let video = ui.interact(ui.max_rect(), Id::unique("video"), Sense::drag());
-            // The compositor's move grab takes the button release, so egui
-            // would otherwise still see the drag as held.
-            if video.drag_started() && window.drag_window().is_ok() {
-                ctx.stop_dragging();
-            }
             let pointer = ctx.input(|input| input.pointer.hover_pos());
             if self.shown > 0.0 {
                 let rect = self.bar(&ctx, window, panel, mode.is_some());
                 over_controls |= pointer.is_some_and(|pointer| rect.contains(pointer));
             }
             if panel > 0.0 {
-                let rect = self.panel(&ctx, panel, audio);
+                let rect = self.panel(&ctx, panel, audio, geometry);
                 over_controls |= pointer.is_some_and(|pointer| rect.contains(pointer));
             }
         } else {
-            self.header(ui, window, audio, mode.is_some());
-            top = HEADER_HEIGHT;
+            self.header(ui, window, audio, mode.is_some(), geometry);
         }
         if self.no_signal {
             ui.painter().text(
@@ -297,7 +342,14 @@ impl Ui {
         self.menu_open = Popup::is_any_open(&ctx);
     }
 
-    fn header(&mut self, ui: &mut egui::Ui, window: &Window, audio: &Audio, video: bool) {
+    fn header(
+        &mut self,
+        ui: &mut egui::Ui,
+        window: &Window,
+        audio: &Audio,
+        video: bool,
+        geometry: Option<Geometry>,
+    ) {
         let frame = Frame::new()
             .fill(SURFACE)
             .inner_margin(Margin::symmetric(8, 0));
@@ -314,66 +366,111 @@ impl Ui {
                 if drag.drag_started() && window.drag_window().is_ok() {
                     ui.ctx().stop_dragging();
                 }
-                // The menu bar starts its row at the interaction height and
-                // grows it downward to fit its buttons. Justifying it to the
-                // full header height keeps the buttons centred.
-                let layout = egui::Layout::left_to_right(Align::Center).with_cross_justify(true);
-                ui.with_layout(layout, |ui| {
-                    // The theme already styles menus, so egui's menu style is not applied.
-                    let config = MenuConfig::new().style(|_: &mut egui::Style| {});
-                    egui::MenuBar::new()
-                        .style(|_: &mut egui::Style| {})
-                        .config(config)
-                        .ui(ui, |ui| {
-                            let source_menu_open = ui
-                                .menu_button("Source", |ui| {
-                                    ui.set_min_width(MENU_WIDTH);
-                                    self.sources(ui);
-                                })
-                                .inner
-                                .is_some();
-                            if source_menu_open && !self.source_menu_open {
-                                let _ = self.scan.try_send(());
-                            }
-                            self.source_menu_open = source_menu_open;
-                            ui.menu_button("Mode", |ui| self.mode_menu(ui));
-                            ui.menu_button("Scale", |ui| {
-                                ui.set_min_width(MENU_WIDTH);
-                                self.scales(ui);
-                            });
-                            self.stats_button(ui);
-                            let readings = audio.readings();
-                            if readings.available || readings.unavailable {
-                                ui.add_space(8.0);
-                                let unavailable = readings.unavailable;
-                                self.audio_controls(ui, audio, VOLUME_WIDTH, unavailable);
-                            }
-                        });
-                    ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                        if close_button(ui).clicked() {
-                            self.quit = true;
-                        }
-                        let maximized = window.is_maximized();
-                        let maximize = if maximized { icon::COPY } else { icon::SQUARE };
-                        if icon_button(ui, maximize, false).clicked() {
-                            window.set_maximized(!maximized);
-                        }
-                        if icon_button(ui, icon::MINUS, false).clicked() {
-                            window.set_minimized(true);
-                        }
-                        ui.add_space(8.0);
-                        if icon_button(ui, icon::CORNERS_OUT, false).clicked() {
-                            toggle_fullscreen(window);
-                        }
-                        if icon_button(ui, icon::MONITOR_PLAY, false).clicked() {
-                            self.settings.layout = Layout::Immersive;
-                            self.save_settings();
-                        }
-                        ui.add_space(8.0);
-                        self.copy_button(ui, video);
+                // Narrow padding across the header leaves room for every menu
+                // at the minimum window width.
+                ui.spacing_mut().button_padding.x = 4.0;
+                // Reserve space for the window buttons so the volume slider
+                // can shrink to the width left by the menus.
+                let controls = ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    if close_button(ui).clicked() {
+                        self.quit = true;
+                    }
+                    let maximized = window.is_maximized();
+                    let maximize = if maximized { icon::COPY } else { icon::SQUARE };
+                    if icon_button(ui, maximize, false).clicked() {
+                        window.set_maximized(!maximized);
+                    }
+                    if icon_button(ui, icon::MINUS, false).clicked() {
+                        window.set_minimized(true);
+                    }
+                    ui.add_space(8.0);
+                    if icon_button(ui, icon::CORNERS_OUT, false).clicked() {
+                        toggle_fullscreen(window);
+                    }
+                    if icon_button(ui, icon::MONITOR_PLAY, false).clicked() {
+                        self.settings.layout = Layout::Immersive;
+                        self.save_settings();
+                    }
+                    ui.add_space(8.0);
+                    self.copy_button(ui, video);
+                    let buttons = ui.min_rect();
+
+                    // Justifying the menu row to the header height keeps its buttons centered.
+                    let layout =
+                        egui::Layout::left_to_right(Align::Center).with_cross_justify(true);
+                    let menus = ui
+                        .with_layout(layout, |ui| self.header_menus(ui, audio, geometry))
+                        .inner;
+                    [menus, buttons]
+                });
+                // egui pairs two clicks only when they release within the
+                // click distance of each other, so a second release that far
+                // from every control keeps both releases off the controls,
+                // including disabled ones that egui does not hit-test.
+                let margin = ui
+                    .ctx()
+                    .options(|options| options.input_options.max_click_dist);
+                if drag.double_clicked()
+                    && drag.interact_pointer_pos().is_some_and(|pos| {
+                        controls
+                            .inner
+                            .iter()
+                            .all(|rect| !rect.expand(margin).contains(pos))
+                    })
+                {
+                    window.set_maximized(!window.is_maximized());
+                }
+            });
+    }
+
+    fn header_menus(
+        &mut self,
+        ui: &mut egui::Ui,
+        audio: &Audio,
+        geometry: Option<Geometry>,
+    ) -> Rect {
+        // The theme already styles menus, so egui's menu style is not applied.
+        let config = MenuConfig::new().style(|_: &mut egui::Style| {});
+        egui::MenuBar::new()
+            .style(|_: &mut egui::Style| {})
+            .config(config)
+            .ui(ui, |ui| {
+                let source_menu_open = ui
+                    .menu_button("Source", |ui| {
+                        ui.set_min_width(MENU_WIDTH);
+                        self.sources(ui);
+                    })
+                    .inner
+                    .is_some();
+                if source_menu_open && !self.source_menu_open {
+                    let _ = self.scan.try_send(());
+                }
+                self.source_menu_open = source_menu_open;
+                ui.add_enabled_ui(self.status.device.is_some(), |ui| {
+                    ui.menu_button("Mode", |ui| self.mode_menu(ui));
+                });
+                ui.menu_button("Scale", |ui| {
+                    ui.set_min_width(MENU_WIDTH);
+                    self.scales(ui, geometry);
+                    self.reset_zoom(ui, geometry);
+                });
+                ui.add_enabled_ui(self.status.device.is_some(), |ui| {
+                    ui.menu_button("Orientation", |ui| {
+                        ui.set_min_width(MENU_WIDTH);
+                        self.orientations(ui);
                     });
                 });
-            });
+                self.stats_button(ui);
+                let readings = audio.readings();
+                if readings.available || readings.unavailable {
+                    ui.add_space(8.0);
+                    self.audio_controls(ui, audio, VOLUME_WIDTH, readings.unavailable);
+                }
+                // The cursor marks the end of the controls within the full-width menu bar.
+                ui.min_rect()
+                    .with_max_x(ui.cursor().left() - ui.spacing().item_spacing.x)
+            })
+            .inner
     }
 
     /// Shows the button bar centred in the part of the window the panel
@@ -421,7 +518,13 @@ impl Ui {
             .rect
     }
 
-    fn panel(&mut self, ctx: &egui::Context, shown: f32, audio: &Audio) -> egui::Rect {
+    fn panel(
+        &mut self,
+        ctx: &egui::Context,
+        shown: f32,
+        audio: &Audio,
+        geometry: Option<Geometry>,
+    ) -> egui::Rect {
         let screen = ctx.content_rect();
         let x = screen.right() - (PANEL_WIDTH + PANEL_MARGIN) * shown;
         egui::Area::new(Id::unique("panel"))
@@ -440,10 +543,14 @@ impl Ui {
                         self.mode_list(ui);
                         ui.add_space(8.0);
                         section(ui, "Scale");
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().button_padding.x = 8.0;
-                            self.scales(ui);
+                            self.scales(ui, geometry);
                         });
+                        self.reset_zoom(ui, geometry);
+                        ui.add_space(8.0);
+                        section(ui, "Orientation");
+                        self.orientations(ui);
                         ui.add_space(8.0);
                         let readings = audio.readings();
                         if readings.available || readings.unavailable {
@@ -554,19 +661,73 @@ impl Ui {
         });
     }
 
-    fn scales(&mut self, ui: &mut egui::Ui) {
+    fn scales(&mut self, ui: &mut egui::Ui, geometry: Option<Geometry>) {
+        let zoom = geometry.and_then(|geometry| geometry.zoom_label(self.view));
         for scale in Scale::ALL {
-            if ui
-                .add(Button::selectable(
-                    self.settings.scale == scale,
-                    scale.name(),
-                ))
-                .clicked()
-                && self.settings.scale != scale
-            {
+            let selected = self.settings.scale == scale;
+            let label = if selected {
+                zoom.as_deref().unwrap_or(scale.name())
+            } else {
+                scale.name()
+            };
+            if ui.add(Button::selectable(selected, label)).clicked() && !selected {
                 self.settings.scale = scale;
+                self.view = View::default();
                 self.save_settings();
             }
+        }
+    }
+
+    fn reset_zoom(&mut self, ui: &mut egui::Ui, geometry: Option<Geometry>) {
+        if geometry
+            .and_then(|geometry| geometry.zoom_label(self.view))
+            .is_some()
+            && ui.button("Reset zoom").clicked()
+        {
+            self.view = View::default();
+        }
+    }
+
+    fn orientations(&mut self, ui: &mut egui::Ui) {
+        let current = self.orientation();
+        let mut orientation = current;
+        ui.add_enabled_ui(self.status.device.is_some(), |ui| {
+            ui.horizontal(|ui| {
+                for rotation in Rotation::ALL {
+                    if ui
+                        .add(Button::selectable(
+                            orientation.rotation == rotation,
+                            rotation.label(),
+                        ))
+                        .clicked()
+                    {
+                        orientation.rotation = rotation;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                for (label, flipped) in [
+                    ("Flip horizontal", &mut orientation.flip_horizontal),
+                    ("Flip vertical", &mut orientation.flip_vertical),
+                ] {
+                    if ui.add(Button::selectable(*flipped, label)).clicked() {
+                        *flipped = !*flipped;
+                    }
+                }
+            });
+        });
+        if orientation != current
+            && let Some(source) = &self.status.device
+        {
+            self.view = View::default();
+            if orientation == Orientation::default() {
+                self.settings.orientations.remove(&source.name);
+            } else {
+                self.settings
+                    .orientations
+                    .insert(source.name.clone(), orientation);
+            }
+            self.save_settings();
         }
     }
 
@@ -645,6 +806,91 @@ impl Ui {
                     ui.end_row();
                 }
             });
+    }
+}
+
+pub fn video_area(top: f32, screen: &ScreenDescriptor) -> [u32; 2] {
+    let [width, height] = screen.size_in_pixels;
+    let top = (top * screen.pixels_per_point).round() as u32;
+    [width, height.saturating_sub(top)]
+}
+
+#[derive(Default)]
+struct VideoInput {
+    pointer: Option<egui::Pos2>,
+    dragging: bool,
+}
+
+impl VideoInput {
+    fn apply(&mut self, ui: &egui::Ui, rect: Rect, geometry: Option<Geometry>, view: &mut View) {
+        use egui::MouseWheelUnit;
+
+        let events = ui.input(|input| input.raw.events.clone());
+        if events.is_empty() {
+            return;
+        }
+        let ctx = ui.ctx();
+        let video_layer = ui.layer_id();
+        let uncovered =
+            |pos| rect.contains(pos) && ctx.layer_id_at(pos).is_none_or(|top| top == video_layer);
+        let pixels = ctx.pixels_per_point();
+        let physical = |delta: egui::Vec2| [delta.x * pixels, delta.y * pixels];
+        let points_per_step =
+            f64::from(ctx.options(|options| options.input_options.line_scroll_speed));
+        // Video zoom shares the ScrollArea's frame-level hover check.
+        let wheel_pos = ctx
+            .pointer_latest_pos()
+            .filter(|_| ui.rect_contains_pointer(rect));
+
+        for event in events {
+            match event {
+                Event::PointerMoved(pos) | Event::PointerButton { pos, .. } => {
+                    if let Some(previous) = self.pointer.replace(pos)
+                        && self.dragging
+                        && let Some(geometry) = geometry
+                    {
+                        geometry.pan(view, physical(pos - previous));
+                    }
+                    if let Event::PointerButton {
+                        button: PointerButton::Primary,
+                        pressed,
+                        ..
+                    } = event
+                    {
+                        self.dragging =
+                            pressed && geometry.is_some_and(Geometry::can_pan) && uncovered(pos);
+                    }
+                }
+                Event::PointerGone => {
+                    self.pointer = None;
+                    self.dragging = false;
+                }
+                Event::MouseWheel { unit, delta, .. } => {
+                    let (Some(geometry), Some(pos)) = (geometry, wheel_pos) else {
+                        continue;
+                    };
+                    let delta = f64::from(if delta.y.abs() >= delta.x.abs() {
+                        delta.y
+                    } else {
+                        delta.x
+                    });
+                    let anchor = physical(pos - rect.min);
+                    match unit {
+                        MouseWheelUnit::Line => geometry.zoom(view, delta, anchor),
+                        MouseWheelUnit::Point => {
+                            geometry.scroll(view, delta, points_per_step, anchor)
+                        }
+                        MouseWheelUnit::Page => geometry.scroll(
+                            view,
+                            delta * f64::from(rect.height()),
+                            points_per_step,
+                            anchor,
+                        ),
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -1008,4 +1254,174 @@ pub fn theme(ctx: &egui::Context) {
         widgets.open.weak_bg_fill = Color32::from_white_alpha(28);
         widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_white_alpha(16));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Modifiers, MouseWheelSource, MouseWheelUnit, TouchPhase};
+
+    #[test]
+    fn wheel_follows_frame_hover_and_drag_follows_press_position() {
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 240.0));
+        let rect = Rect::from_min_max(pos2(0.0, 40.0), screen.max);
+        let geometry = Geometry::new(Scale::Fill, [300, 200], [200, 200]).unwrap();
+        let mut view = View::default();
+        let mut input = VideoInput::default();
+        let ctx = egui::Context::default();
+        let mut pass = |events| {
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            let mut scrolled = 0.0;
+            ctx.run_ui(raw, |root| {
+                input.apply(root, rect, Some(geometry), &mut view);
+                egui::Area::new(Id::unique("panel"))
+                    .fixed_pos(pos2(220.0, 65.0))
+                    .order(Order::Foreground)
+                    .movable(false)
+                    .show(root.ctx(), |ui| {
+                        ui.set_max_height(110.0);
+                        let area = egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.allocate_space(vec2(60.0, 220.0));
+                        });
+                        scrolled = area.state.clamped_offset().y;
+                    });
+            })
+            .drop_without_applying_deltas();
+            (geometry.place(view), scrolled)
+        };
+        let wheel = |unit, y| Event::MouseWheel {
+            unit,
+            delta: vec2(0.0, y),
+            phase: TouchPhase::Move,
+            source: MouseWheelSource::Unknown,
+            modifiers: Modifiers::NONE,
+        };
+        let button = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+
+        pass(vec![]);
+        pass(vec![]);
+        let control = pos2(240.0, 90.0);
+        let video = pos2(140.0, 140.0);
+        let (zoomed, scrolled) = pass(vec![
+            Event::PointerMoved(video),
+            wheel(MouseWheelUnit::Line, 1.0),
+        ]);
+        let mut expected = View::default();
+        let anchor = video - rect.min;
+        geometry.zoom(&mut expected, 1.0, [anchor.x, anchor.y]);
+        assert_eq!(zoomed, geometry.place(expected));
+        assert_eq!(scrolled, 0.0);
+
+        let (placed, scrolled) = pass(vec![
+            Event::PointerMoved(video),
+            wheel(MouseWheelUnit::Line, -1.0),
+            Event::PointerMoved(control),
+        ]);
+        assert_eq!(placed, zoomed);
+        assert!(scrolled > 0.0);
+
+        let (smooth_zoom, panel_offset) = pass(vec![
+            wheel(MouseWheelUnit::Point, 20.0),
+            Event::PointerMoved(video),
+        ]);
+        geometry.scroll(&mut expected, 20.0, 40.0, [anchor.x, anchor.y]);
+        assert_eq!(smooth_zoom, geometry.place(expected));
+        assert_eq!(panel_offset, scrolled);
+
+        let (placed, _) = pass(vec![
+            Event::PointerMoved(pos2(140.0, 20.0)),
+            wheel(MouseWheelUnit::Line, 1.0),
+        ]);
+        assert_eq!(placed, smooth_zoom);
+
+        assert_eq!(
+            pass(vec![button(control, true), Event::PointerMoved(video)]).0,
+            smooth_zoom
+        );
+        let next = video + vec2(1.0, 1.0);
+        assert_eq!(pass(vec![Event::PointerMoved(next)]).0, smooth_zoom);
+        pass(vec![button(next, false)]);
+
+        let (panned, _) = pass(vec![button(video, true), Event::PointerMoved(next)]);
+        assert!((panned[0] - smooth_zoom[0] - 1.0).abs() < 1e-9);
+        assert!((panned[1] - smooth_zoom[1] - 1.0).abs() < 1e-9);
+        let (panned_over_panel, _) =
+            pass(vec![Event::PointerMoved(control), button(control, false)]);
+        assert!(panned_over_panel[0] > panned[0]);
+        assert!(panned_over_panel[1] < panned[1]);
+
+        let (zoomed, _) = pass(vec![
+            Event::PointerMoved(video),
+            Event::WindowFocused(false),
+            wheel(MouseWheelUnit::Line, 1.0),
+        ]);
+        assert!(zoomed[2] > panned_over_panel[2]);
+        assert_eq!(
+            pass(vec![Event::PointerGone, wheel(MouseWheelUnit::Line, 1.0)]).0,
+            zoomed
+        );
+    }
+
+    #[test]
+    fn view_resets_only_when_the_capture_device_or_mode_changes() {
+        let (commands, _) = std::sync::mpsc::channel();
+        let (scan, _) = std::sync::mpsc::sync_channel(1);
+        let (save, _) = std::sync::mpsc::channel();
+        let mut ui = Ui::new(commands, scan, Settings::default(), save);
+        let device = Source {
+            path: "capture".into(),
+            name: "Capture".into(),
+        };
+        let mode = Mode {
+            pixel: crate::decode::PixelFormat::Mjpeg,
+            width: 100,
+            height: 100,
+            interval: v4l::Fraction::new(1, 60),
+        };
+        let geometry = Geometry::new(Scale::Fill, [100; 2], [100; 2]).unwrap();
+        let active = Status {
+            device: Some(device.clone()),
+            mode: Some(mode),
+            ..Default::default()
+        };
+        ui.set_status(active.clone());
+        geometry.zoom(&mut ui.view, 1.0, geometry.center());
+        geometry.pan(&mut ui.view, [1.0, 1.0]);
+        let view = ui.view;
+
+        ui.set_status(Status::default());
+        assert_eq!(ui.view, view);
+        ui.set_status(Status {
+            mode: None,
+            ..active.clone()
+        });
+        assert_eq!(ui.view, view);
+        ui.set_status(active.clone());
+        assert_eq!(ui.view, view);
+
+        ui.set_status(Status {
+            mode: Some(Mode { width: 200, ..mode }),
+            ..active.clone()
+        });
+        assert_eq!(ui.view, View::default());
+        ui.view = view;
+        ui.set_status(Status {
+            device: Some(Source {
+                name: "Other capture".into(),
+                ..device
+            }),
+            mode: None,
+            ..active
+        });
+        assert_eq!(ui.view, View::default());
+    }
 }

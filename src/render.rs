@@ -12,14 +12,18 @@ use winit::window::Window;
 use crate::audio::{Audio, Figures};
 use crate::capture::{Frame, Inbox, Mode, monotonic_now};
 use crate::decode::{Color, Layout, LayoutKind};
-use crate::scale::place;
-use crate::ui::Ui;
+use crate::orientation::Orientation;
+use crate::scale;
+use crate::ui::{Ui, video_area};
 
 /// How long after the latest frame the video counts as live. While it is
 /// live, frame arrival drives redraws and the interface requests none.
 const LIVE: Duration = Duration::from_millis(100);
 /// Redraw interval for animations when no video arrives.
 const ANIMATION_FRAME: Duration = Duration::from_millis(8);
+const ORIENTATION_OFFSET: u64 = 32;
+const CROP_OFFSET: u64 = ORIENTATION_OFFSET + 16;
+const FULL_CROP: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 pub struct Renderer {
     pub window: Arc<Window>,
@@ -33,6 +37,7 @@ pub struct Renderer {
     corners: RenderPipeline,
     sampler: Sampler,
     uniform: Buffer,
+    orientation: Option<Orientation>,
     video: Option<Video>,
     egui: egui_winit::State,
     overlay: egui_wgpu::Renderer,
@@ -48,7 +53,7 @@ struct Video {
     color: Color,
 }
 
-/// The current frame rendered at its capture size into a buffer the
+/// The oriented frame rendered at capture resolution into a buffer the
 /// clipboard thread maps once the GPU finishes.
 pub struct Snapshot {
     pub device: Device,
@@ -204,8 +209,8 @@ impl Renderer {
             .await?;
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
-                // Filling a large display scales the video viewport past the
-                // default size limit.
+                // The surface and capture textures can exceed the default
+                // texture size limit.
                 required_limits: Limits {
                     max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
                     ..Default::default()
@@ -301,8 +306,8 @@ impl Renderer {
             ..Default::default()
         });
         let uniform = device.create_buffer(&BufferDescriptor {
-            label: Some("Video conversion parameters"),
-            size: 32,
+            label: Some("Video parameters"),
+            size: CROP_OFFSET + 16,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -327,6 +332,7 @@ impl Renderer {
             corners,
             sampler,
             uniform,
+            orientation: None,
             video: None,
             egui,
             overlay,
@@ -353,6 +359,28 @@ impl Renderer {
     /// Passes an event to egui and returns whether egui wants a redraw.
     pub fn window_event(&mut self, event: &WindowEvent) -> bool {
         self.egui.on_window_event(&self.window, event).repaint
+    }
+
+    pub fn zoom(&self, ui: &mut Ui, steps: f64) {
+        if let Some(video) = &self.video
+            && let Some(geometry) =
+                ui.video_geometry(ui.video_top(&self.window), &self.screen(), video.mode)
+        {
+            geometry.zoom(&mut ui.view, steps, geometry.center());
+        }
+    }
+
+    fn screen(&self) -> ScreenDescriptor {
+        ScreenDescriptor {
+            size_in_pixels: [self.config.width, self.config.height],
+            pixels_per_point: egui_winit::pixels_per_point(self.egui.egui_ctx(), &self.window),
+        }
+    }
+
+    fn write_crop(&self, crop: [f32; 4]) {
+        let bytes = crop.map(f32::to_le_bytes);
+        self.queue
+            .write_buffer(&self.uniform, CROP_OFFSET, bytes.as_flattened());
     }
 
     pub fn live(&self) -> bool {
@@ -423,18 +451,17 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor::default());
-        let pixels_per_point = egui_winit::pixels_per_point(self.egui.egui_ctx(), &self.window);
+        let screen = self.screen();
         let input = self.egui.take_egui_input(&self.window);
         let mut repaint = None;
         let mut paint = Vec::new();
         let mut free = Vec::new();
         let mut callback_commands = Vec::new();
-        // With no control on screen the egui pass is skipped, and the input it
-        // would have read is dropped.
-        if ui.visible(&self.window) {
+        // Pointer events still update the video input while the controls are hidden.
+        if ui.visible(&self.window) || !input.events.is_empty() {
             let mode = self.video.as_ref().map(|video| video.mode);
             let mut output = self.egui.egui_ctx().run_ui(input, |root| {
-                ui.show(root, &self.window, mode, &self.stats, audio);
+                ui.show(root, &self.window, mode, &self.stats, audio, &screen);
             });
             self.egui
                 .handle_platform_output(&self.window, output.platform_output);
@@ -454,10 +481,6 @@ impl Renderer {
             }
             free.extend(output.textures_delta.free.drain());
         }
-        let screen = ScreenDescriptor {
-            size_in_pixels: [self.config.width, self.config.height],
-            pixels_per_point,
-        };
         if !paint.is_empty() {
             callback_commands = self.overlay.update_buffers(
                 &self.device,
@@ -467,9 +490,16 @@ impl Renderer {
                 &screen,
             );
         }
-        let top = ((ui.video_top(&self.window) * pixels_per_point).round() as u32)
-            .min(self.config.height);
-        let area = [self.config.width, self.config.height - top];
+        let top = ui.video_top(&self.window);
+        let area = video_area(top, &screen);
+        let top_px = self.config.height - area[1];
+        let orientation = ui.orientation();
+        if self.orientation != Some(orientation) {
+            let uniform = orientation.uv_rows().map(f32::to_le_bytes);
+            self.queue
+                .write_buffer(&self.uniform, ORIENTATION_OFFSET, uniform.as_flattened());
+            self.orientation = Some(orientation);
+        }
 
         {
             let mut pass = encoder
@@ -487,14 +517,11 @@ impl Renderer {
                 })
                 .forget_lifetime();
             if let Some(video) = &self.video
-                && let Some([x, y, width, height]) = place(
-                    ui.settings.scale,
-                    area,
-                    [video.mode.width, video.mode.height],
-                )
+                && let Some(geometry) = ui.video_geometry(top, &screen, video.mode)
             {
-                pass.set_scissor_rect(0, top, area[0], area[1]);
-                pass.set_viewport(x, y + top as f32, width, height, 0.0, 1.0);
+                let ([x, y, width, height], crop) = scale::clip(geometry.place(ui.view), area);
+                self.write_crop(crop);
+                pass.set_viewport(x, y + top_px as f32, width, height, 0.0, 1.0);
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &video.bindings, &[]);
                 pass.draw(0..3, 0..1);
@@ -506,7 +533,8 @@ impl Renderer {
             // that switched to immersive keeps its corners.
             if rounded && ui.rounded_corners(&self.window) {
                 let style = self.egui.egui_ctx().global_style();
-                let radius = f32::from(style.visuals.window_corner_radius.nw) * pixels_per_point;
+                let radius =
+                    f32::from(style.visuals.window_corner_radius.nw) * screen.pixels_per_point;
                 pass.set_pipeline(&self.corners);
                 pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
                 for (mirror, x) in [(0, 0.0), (1, self.config.width as f32 - radius)] {
@@ -537,14 +565,16 @@ impl Renderer {
         next.into_iter().chain(stale).min()
     }
 
-    /// Renders the current frame through the video shader into a texture of
-    /// the capture size and copies it into a mappable buffer, or returns
-    /// `None` while there is no frame.
+    /// Renders the current frame at its oriented capture size and copies it
+    /// into a mappable buffer, or returns `None` while there is no frame.
     pub fn snapshot(&self) -> Option<Snapshot> {
         let video = self.video.as_ref()?;
+        let [width, height] = self
+            .orientation?
+            .size([video.mode.width, video.mode.height]);
         let size = Extent3d {
-            width: video.mode.width,
-            height: video.mode.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
         let texture = self.device.create_texture(&TextureDescriptor {
@@ -564,6 +594,7 @@ impl Renderer {
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        self.write_crop(FULL_CROP);
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor::default());

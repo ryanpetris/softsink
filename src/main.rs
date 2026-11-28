@@ -3,6 +3,7 @@ mod capture;
 mod clipboard;
 mod decode;
 mod inhibit;
+mod orientation;
 mod render;
 mod scale;
 mod settings;
@@ -27,6 +28,7 @@ use winit::window::{Window, WindowId};
 
 use capture::{Event, Inbox};
 use render::Renderer;
+use scale::View;
 use settings::Settings;
 use ui::Ui;
 
@@ -153,6 +155,27 @@ impl ApplicationHandler<Event> for App {
                         && event.key_without_modifiers().as_ref() == Key::Character("c") =>
                     {
                         ui.copy = true;
+                    }
+                    _ if self.modifiers.control_key()
+                        && !self
+                            .modifiers
+                            .intersects(ModifiersState::ALT | ModifiersState::SUPER) =>
+                    {
+                        match event.logical_key.as_ref() {
+                            Key::Character("=" | "+") => {
+                                ui.activity();
+                                renderer.zoom(ui, 1.0);
+                            }
+                            Key::Character("-") => {
+                                ui.activity();
+                                renderer.zoom(ui, -1.0);
+                            }
+                            Key::Character("0") => {
+                                ui.activity();
+                                ui.view = View::default();
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }
