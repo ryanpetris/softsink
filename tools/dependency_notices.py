@@ -70,7 +70,7 @@ def record(output):
         {"name": "Inter", "license": "OFL-1.1",
          "notices": [copy(Path("assets/Inter-LICENSE.txt"), "inter/LICENSE.txt")]},
         {"name": "Phosphor Icons", "license": "MIT", "version": "2.1",
-         "notices": [copy(notice_sources / "Phosphor-LICENSE.txt", "phosphor/LICENSE.txt")]},
+         "notices": [copy(Path("assets/Phosphor-LICENSE.txt"), "phosphor/LICENSE.txt")]},
         {"name": "PipeWire SPA headers", "license": "MIT",
          "notices": [copy(notice_sources / "PipeWire-COPYING.txt", "pipewire-spa/COPYING")]},
         {"name": "libjpeg-turbo", "version": jpeg_version, "license": "IJG and BSD-3-Clause and Zlib",

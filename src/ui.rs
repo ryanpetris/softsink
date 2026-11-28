@@ -3,19 +3,19 @@ use std::sync::Arc;
 use std::sync::mpsc::{Sender, SyncSender};
 use std::time::{Duration, Instant};
 
-use egui::containers::menu::{MenuConfig, SubMenuButton};
+use egui::containers::menu::{MenuButton, MenuConfig, SubMenuButton};
 use egui::{
     Align, Align2, Button, Color32, CornerRadius, CursorIcon, Event, FontData, FontDefinitions,
     FontFamily, FontId, Frame, Id, Margin, Order, PointerButton, Popup, Rect, RichText, Sense,
     Shadow, Slider, Stroke, TextStyle, pos2, vec2,
 };
-use egui_phosphor::regular as icon;
 use egui_wgpu::ScreenDescriptor;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::{Fullscreen, ResizeDirection, Window};
 
 use crate::audio::{Audio, Readings};
 use crate::capture::{Command, Mode, Source, Status, monotonic_now};
+use crate::icon;
 use crate::orientation::{Orientation, Rotation};
 use crate::render::{STALE, Sample, Stats, WINDOW};
 use crate::scale::{Geometry, Scale, View};
@@ -35,6 +35,9 @@ const MENU_WIDTH: f32 = 140.0;
 const CELL_WIDTH: f32 = 60.0;
 const VOLUME_WIDTH: f32 = 96.0;
 const ICON_SIZE: f32 = 18.0;
+/// Font family of the icons. Icons stay out of the text families because the
+/// text font has glyphs of its own at some of the icon code points.
+const ICON_FONT: &str = "Phosphor";
 const READOUT_SIZE: f32 = 12.0;
 /// Indent of the parts of the latency under it in the readout.
 const INDENT: f32 = 10.0;
@@ -366,9 +369,6 @@ impl Ui {
                 if drag.drag_started() && window.drag_window().is_ok() {
                     ui.ctx().stop_dragging();
                 }
-                // Narrow padding across the header leaves room for every menu
-                // at the minimum window width.
-                ui.spacing_mut().button_padding.x = 4.0;
                 // Reserve space for the window buttons so the volume slider
                 // can shrink to the width left by the menus.
                 let controls = ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
@@ -435,32 +435,31 @@ impl Ui {
             .style(|_: &mut egui::Style| {})
             .config(config)
             .ui(ui, |ui| {
-                let source_menu_open = ui
-                    .menu_button("Source", |ui| {
-                        ui.set_min_width(MENU_WIDTH);
-                        self.sources(ui);
-                    })
-                    .inner
-                    .is_some();
+                let source_menu_open = icon_menu(ui, icon::ARROW_SQUARE_IN, |ui| {
+                    ui.set_min_width(MENU_WIDTH);
+                    self.sources(ui);
+                });
                 if source_menu_open && !self.source_menu_open {
                     let _ = self.scan.try_send(());
                 }
                 self.source_menu_open = source_menu_open;
                 ui.add_enabled_ui(self.status.device.is_some(), |ui| {
-                    ui.menu_button("Mode", |ui| self.mode_menu(ui));
+                    icon_menu(ui, icon::WAVE_SQUARE, |ui| self.mode_menu(ui));
                 });
-                ui.menu_button("Scale", |ui| {
+                icon_menu(ui, icon::RESIZE, |ui| {
                     ui.set_min_width(MENU_WIDTH);
                     self.scales(ui, geometry);
                     self.reset_zoom(ui, geometry);
                 });
                 ui.add_enabled_ui(self.status.device.is_some(), |ui| {
-                    ui.menu_button("Orientation", |ui| {
+                    icon_menu(ui, icon::DEVICE_ROTATE, |ui| {
                         ui.set_min_width(MENU_WIDTH);
                         self.orientations(ui);
                     });
                 });
-                self.stats_button(ui);
+                if icon_button(ui, icon::CHART_LINE, self.settings.stats).clicked() {
+                    self.toggle_stats();
+                }
                 let readings = audio.readings();
                 if readings.available || readings.unavailable {
                     ui.add_space(8.0);
@@ -562,7 +561,12 @@ impl Ui {
                             ui.add_space(8.0);
                         }
                         ui.separator();
-                        self.stats_button(ui);
+                        if ui
+                            .add(Button::selectable(self.settings.stats, "Stats"))
+                            .clicked()
+                        {
+                            self.toggle_stats();
+                        }
                     });
                 });
             })
@@ -611,14 +615,9 @@ impl Ui {
         }
     }
 
-    fn stats_button(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .add(Button::selectable(self.settings.stats, "Stats"))
-            .clicked()
-        {
-            self.settings.stats = !self.settings.stats;
-            self.save_settings();
-        }
+    fn toggle_stats(&mut self) {
+        self.settings.stats = !self.settings.stats;
+        self.save_settings();
     }
 
     /// Shows the mute button and a volume slider up to `width` wide, or both
@@ -930,10 +929,21 @@ fn resize_cursor(edge: ResizeDirection) -> CursorIcon {
 }
 
 fn icon_button(ui: &mut egui::Ui, glyph: &str, selected: bool) -> egui::Response {
-    ui.add(
-        Button::selectable(selected, RichText::new(glyph).size(ICON_SIZE))
-            .min_size(vec2(34.0, 30.0)),
-    )
+    ui.add(glyph_button(glyph, selected))
+}
+
+/// Shows an icon button that opens a menu of `contents` and returns whether
+/// the menu is open.
+fn icon_menu(ui: &mut egui::Ui, glyph: &str, contents: impl FnOnce(&mut egui::Ui)) -> bool {
+    MenuButton::from_button(glyph_button(glyph, false))
+        .ui(ui, contents)
+        .1
+        .is_some()
+}
+
+fn glyph_button(glyph: &str, selected: bool) -> Button<'_> {
+    let font = FontId::new(ICON_SIZE, FontFamily::Name(ICON_FONT.into()));
+    Button::selectable(selected, RichText::new(glyph).font(font)).min_size(vec2(34.0, 30.0))
 }
 
 fn close_button(ui: &mut egui::Ui) -> egui::Response {
@@ -1201,16 +1211,17 @@ pub fn theme(ctx: &egui::Context) {
         ))),
     );
     fonts.font_data.insert(
-        "Phosphor".into(),
-        Arc::new(FontData::from_static(
-            egui_phosphor::Variant::Regular.font_bytes(),
-        )),
+        ICON_FONT.into(),
+        Arc::new(FontData::from_static(include_bytes!(
+            "../assets/Phosphor-Regular.ttf"
+        ))),
     );
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        fonts
-            .families
-            .insert(family, vec!["Inter".into(), "Phosphor".into()]);
+        fonts.families.insert(family, vec!["Inter".into()]);
     }
+    fonts
+        .families
+        .insert(FontFamily::Name(ICON_FONT.into()), vec![ICON_FONT.into()]);
     ctx.set_fonts(fonts);
     ctx.all_styles_mut(|style| {
         style.visuals = egui::Visuals::dark();

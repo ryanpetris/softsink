@@ -10,7 +10,7 @@ Review third-party notices whenever you change any of the following:
 
 - Dependencies in `Cargo.toml` or `Cargo.lock`.
 - `assets/Inter-Regular.ttf`.
-- `egui-phosphor` (or the Phosphor Icons font it embeds).
+- `assets/Phosphor-Regular.ttf`.
 - `pipewire`, `libspa-sys`, or the base images set by `resolute_base` and `trixie_base` in `justfile` (which override the default in `docker/host.Dockerfile` and supply `libpipewire-0.3-dev`).
 - `turbojpeg` or `turbojpeg-sys` (which bundles `libjpeg-turbo`).
 - `RUSTUP_TOOLCHAIN` in `docker/host.Dockerfile`.
@@ -60,7 +60,7 @@ When a crate leaves the graph or starts shipping its own license file, delete it
 | Component | Source and files to check on update |
 | --- | --- |
 | `Inter` | Update `assets/Inter-LICENSE.txt` from the matching Inter release and verify `OFL-1.1` in `tools/dependency_notices.py`. |
-| `Phosphor Icons` | Check which release `egui-phosphor` embeds, update `version` and `license` in `tools/dependency_notices.py`, and update `packaging/notices/Phosphor-LICENSE.txt`. |
+| `Phosphor Icons` | Update `assets/Phosphor-LICENSE.txt` from the Phosphor Icons release matching `assets/Phosphor-Regular.ttf` and update `version` and `license` in `tools/dependency_notices.py`. |
 | `PipeWire SPA headers` | Check PipeWire's `COPYING` for the `libpipewire-0.3-dev` version installed in `resolute_base` and `trixie_base`, update `packaging/notices/PipeWire-COPYING.txt` if changed, and verify `MIT` in `tools/dependency_notices.py`. |
 | `libjpeg-turbo` | Check that `set(VERSION ...)` in `libjpeg-turbo/CMakeLists.txt`, `LICENSE.md`, and `README.ijg` still exist in `turbojpeg-sys`, verify `IJG and BSD-3-Clause and Zlib` matches `LICENSE.md`, and check the IJG attribution sentence in `DEPENDENCIES.md`. |
 

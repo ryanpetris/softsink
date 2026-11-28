@@ -4,7 +4,7 @@ Softsink displays live video and audio from UVC capture cards in a borderless Li
 
 ## Capture Sources and Modes
 
-On startup, Softsink scans `/dev/video*` for UVC (`uvcvideo`) capture devices and opens the last source you selected, or the first UVC device it finds. If no source is available or none starts, the window shows **No signal** and rescans every second. Opening the **Source** menu or the immersive side panel also triggers a rescan.
+On startup, Softsink scans `/dev/video*` for UVC (`uvcvideo`) capture devices and opens the last source you selected, or the first UVC device it finds. If no source is available or none starts, the window shows **No signal** and rescans every second. Opening the header bar's **Source** menu or the immersive side panel also triggers a rescan.
 
 Softsink lists discrete-resolution **MJPEG**, **YUYV**, and **NV12** modes. For stepwise frame intervals, it uses the shortest interval.
 
@@ -18,7 +18,7 @@ Softsink draws a borderless window with a minimum size of 640x360 logical pixels
 
 Two layouts are available:
 
-- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds **Source**, **Mode**, **Scale**, **Orientation**, and **Stats**, plus the mute button and volume slider when the source has audio. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window, or double-click it to maximize or restore the window.
+- **Framed** (default): Places a fixed header bar above the video with rounded top window corners when unmaximized. The left side holds icon buttons for four menus and a toggle: **Source**, an arrow entering a square; **Mode**, a square wave; **Scale**, a square inside a dashed outline; **Orientation**, a rectangle with rotation arrows; and **Stats**, a line chart. The mute button and volume slider follow when the source has audio. **Mode** and **Orientation** are unavailable while no source is open. The right side holds the copy button, toggles for the immersive layout and fullscreen, and minimize, maximize, and close buttons. Drag the header bar to move the window, or double-click it to maximize or restore the window.
 - **Immersive**: Fills the entire window with video (fullscreen always uses this layout). Moving the pointer reveals a bottom bar with buttons for the side panel, copy, framed layout, fullscreen, and close. The side panel holds **Source**, **Mode**, **Scale**, **Orientation**, **Audio** (when present), and **Stats**. After 2 seconds without pointer activity, the bar and side panel slide away and the cursor hides unless the pointer rests over them or a menu is open. Drag the video to pan when the scaling mode allows it. To move the window, use your compositor's modifier+drag shortcut, such as `Super+drag` on GNOME.
 
 The copy button puts the current video frame on the clipboard with its rotation and flips applied. The image keeps the capture resolution, with width and height swapped at 90 and 270 degrees. It excludes the interface, scaling, zoom, pan, and black bars. The button is disabled while there is no video, and shows a check for a second once the image is on the clipboard. In the immersive layout, the check also brings back the bottom bar. You can paste the image while Softsink runs.
@@ -36,7 +36,7 @@ The copy button puts the current video frame on the clipboard with its rotation 
 
 ## Scaling
 
-Select a scaling mode from **Scale** in the header bar or side panel:
+Select a scaling mode from the header bar's **Scale** menu or the side panel's **Scale** section:
 
 | Mode | Behavior | Zoom | Pan |
 | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ Select a scaling mode from **Scale** in the header bar or side panel:
 
 ## Orientation
 
-Use **Orientation** in the header bar or side panel to rotate the video 0, 90, 180, or 270 degrees clockwise. **Flip horizontal** swaps the displayed left and right, and **Flip vertical** swaps the displayed top and bottom. The flips are independent and apply after rotation. Softsink scales the resulting image and remembers the orientation for each capture device.
+Use the header bar's **Orientation** menu or the side panel's **Orientation** section to rotate the video 0, 90, 180, or 270 degrees clockwise. **Flip horizontal** swaps the displayed left and right, and **Flip vertical** swaps the displayed top and bottom. The flips are independent and apply after rotation. Softsink scales the resulting image and remembers the orientation for each capture device.
 
 ## Audio Passthrough
 
@@ -64,7 +64,7 @@ Audio passthrough is enabled by default. Softsink finds an audio capture device 
 
 ## Stats Readout
 
-Toggling **Stats** shows an overlay in the top-left corner of the video area while video streams:
+Toggling **Stats** in the header bar or side panel shows an overlay in the top-left corner of the video area while video streams:
 
 - **Stream header**: Active pixel format, resolution, configured frame rate, and measured presentation rate in FPS.
 - **Timing table**: Average (`avg`), 99th percentile (`99%`), and maximum (`max`) times in milliseconds over the last 5 seconds, refreshed once per second:

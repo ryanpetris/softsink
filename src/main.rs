@@ -2,6 +2,7 @@ mod audio;
 mod capture;
 mod clipboard;
 mod decode;
+mod icon;
 mod inhibit;
 mod orientation;
 mod render;
